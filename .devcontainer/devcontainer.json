@@ -2,7 +2,7 @@
   "name": "Python 3.11",
   "image": "mcr.microsoft.com/devcontainers/python:3.11",
   "features": {
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+    "ghcr.io/devcontainers/features/docker-in-docker:2.9": {}
   },
   "postCreateCommand": "pip install -r requirements.txt"
 }
