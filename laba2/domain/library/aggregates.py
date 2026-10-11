@@ -18,24 +18,11 @@ class LoanStatus(Enum):
 
 @dataclass(frozen=True)
 class Copy:
-    """
-    Экземпляр книги — внутренняя сущность агрегата Book.
-    Frozen: снаружи нельзя переключить on_loan в обход Book.
-    Состояние экземпляра меняется только через методы Book.
-    """
     id: CopyId
     on_loan: bool = False
 
 
 class Book:
-    """
-    Агрегат-корень «Книга».
-    Хранит метаданные и список физических экземпляров (Copy).
-    Инварианты:
-      - нельзя выдать экземпляр, если свободных нет;
-      - конкретный экземпляр не может быть выдан дважды;
-      - нельзя вернуть экземпляр, который не выдан.
-    """
 
     def __init__(self, book_id: BookId, title: str, author: str,
                  isbn: ISBN, copies: list[Copy] | None = None) -> None:
@@ -114,11 +101,6 @@ class Book:
 
 
 class Reader:
-    """
-    Агрегат-корень «Читатель».
-    Инвариант: заблокированному читателю книгу не выдаём.
-    """
-
     def __init__(self, reader_id: ReaderId, full_name: FullName,
                  ticket_number: TicketNumber,
                  is_active: bool = True) -> None:
@@ -160,15 +142,6 @@ class Reader:
 
 
 class Loan:
-    """
-    Агрегат-корень «Выдача».
-    Связи с Book, Copy, Reader — только по идентификаторам.
-    Инварианты:
-      - выдача не может быть закрыта дважды;
-      - дата возврата не раньше даты выдачи;
-      - штраф рассчитывается от дней просрочки.
-    """
-
     def __init__(self, loan_id: LoanId, book_id: BookId, copy_id: CopyId,
                  reader_id: ReaderId, period: LoanPeriod,
                  status: LoanStatus = LoanStatus.ISSUED,

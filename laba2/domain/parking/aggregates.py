@@ -21,15 +21,6 @@ class SessionStatus(Enum):
 
 
 class ParkingSpot:
-    """
-    Агрегат-корень «Парковочное место».
-    Статус — вычисляемое свойство от active_session_id, поэтому
-    рассинхронизировать состояние физически невозможно.
-    Инварианты:
-      - место нельзя занять повторно;
-      - нельзя освободить свободное место.
-    """
-
     def __init__(self, spot_id: SpotId, number: str,
                  active_session_id: SessionId | None = None) -> None:
         if not number.strip():
@@ -75,16 +66,6 @@ class ParkingSpot:
 
 
 class ParkingSession:
-    """
-    Агрегат-корень «Парковочная сессия».
-    Связи с ParkingSpot и Vehicle — по идентификаторам.
-    Инварианты:
-      - сессию нельзя закрыть дважды;
-      - время выезда не раньше времени въезда;
-      - стоимость по тарифу (с округлением вверх);
-      - штраф за превышение max_hours.
-    """
-
     def __init__(self, session_id: SessionId, spot_id: SpotId,
                  vehicle_id: VehicleId, license_plate: LicensePlate,
                  interval: TimeInterval,

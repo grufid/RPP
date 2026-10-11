@@ -20,9 +20,7 @@ from infra.parking_memory import (
 
 
 def demo_library() -> None:
-    print("=" * 60)
     print("БИБЛИОТЕКА")
-    print("=" * 60)
 
     books = InMemoryBookRepository()
     readers = InMemoryReaderRepository()
@@ -78,10 +76,7 @@ def demo_library() -> None:
 
 def demo_parking() -> None:
     print()
-    print("=" * 60)
     print("ПАРКОВКА")
-    print("=" * 60)
-
     from domain.parking.aggregates import ParkingSpot
 
     spots = InMemoryParkingSpotRepository()
