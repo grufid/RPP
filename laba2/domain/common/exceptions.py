@@ -1,13 +1,14 @@
 class DomainError(Exception):
     """Базовое доменное исключение."""
-    pass
 
 
 class DomainInvariantViolation(DomainError):
-    """Нарушение инварианта предметной области."""
-    pass
+    """Нарушение инварианта агрегата."""
 
 
 class InvalidValueObject(DomainError):
     """Некорректное значение объекта-значения."""
-    pass
+
+
+class EntityNotFound(DomainError):
+    """Сущность не найдена в репозитории."""

@@ -23,29 +23,25 @@ class SessionStatus(Enum):
 class ParkingSpot:
     """
     Агрегат-корень «Парковочное место».
-
+    Статус — вычисляемое свойство от active_session_id, поэтому
+    рассинхронизировать состояние физически невозможно.
     Инварианты:
-      - место не может быть занято повторно (occupy);
-      - нельзя освободить свободное место (release).
-
-    Статус — вычисляемое свойство на основе active_session_id,
-    поэтому некорректное состояние физически невозможно.
+      - место нельзя занять повторно;
+      - нельзя освободить свободное место.
     """
 
     def __init__(self, spot_id: SpotId, number: str,
                  active_session_id: SessionId | None = None) -> None:
+        if not number.strip():
+            raise DomainInvariantViolation("Номер места не может быть пустым")
         self._spot_id = spot_id
         self._number = number
         self._active_session_id = active_session_id
 
     @property
-    def spot_id(self) -> SpotId:
-        return self._spot_id
-
+    def spot_id(self) -> SpotId: return self._spot_id
     @property
-    def number(self) -> str:
-        return self._number
-
+    def number(self) -> str: return self._number
     @property
     def active_session_id(self) -> SessionId | None:
         return self._active_session_id
@@ -69,32 +65,24 @@ class ParkingSpot:
 
     def occupy(self, session_id: SessionId) -> None:
         if self._active_session_id is not None:
-            raise DomainInvariantViolation(
-                f"Место {self._number} уже занято"
-            )
+            raise DomainInvariantViolation(f"Место {self._number} уже занято")
         self._active_session_id = session_id
 
     def release(self) -> None:
         if self._active_session_id is None:
-            raise DomainInvariantViolation(
-                f"Место {self._number} не занято"
-            )
+            raise DomainInvariantViolation(f"Место {self._number} не занято")
         self._active_session_id = None
 
 
 class ParkingSession:
     """
     Агрегат-корень «Парковочная сессия».
-
-    Связь с ParkingSpot — по spot_id (не объект).
-    Связь с Vehicle — по vehicle_id (не объект).
-    Номер машины хранится как VO LicensePlate.
-
+    Связи с ParkingSpot и Vehicle — по идентификаторам.
     Инварианты:
       - сессию нельзя закрыть дважды;
       - время выезда не раньше времени въезда;
-      - стоимость рассчитывается по тарифу;
-      - при превышении max_hours добавляется штраф (если передана политика).
+      - стоимость по тарифу (с округлением вверх);
+      - штраф за превышение max_hours.
     """
 
     def __init__(self, session_id: SessionId, spot_id: SpotId,
@@ -129,40 +117,24 @@ class ParkingSession:
             )
 
     @property
-    def session_id(self) -> SessionId:
-        return self._session_id
-
+    def session_id(self) -> SessionId: return self._session_id
     @property
-    def spot_id(self) -> SpotId:
-        return self._spot_id
-
+    def spot_id(self) -> SpotId: return self._spot_id
     @property
-    def vehicle_id(self) -> VehicleId:
-        return self._vehicle_id
-
+    def vehicle_id(self) -> VehicleId: return self._vehicle_id
     @property
-    def license_plate(self) -> LicensePlate:
-        return self._license_plate
-
+    def license_plate(self) -> LicensePlate: return self._license_plate
     @property
-    def interval(self) -> TimeInterval:
-        return self._interval
-
+    def interval(self) -> TimeInterval: return self._interval
     @property
-    def status(self) -> SessionStatus:
-        return self._status
-
+    def status(self) -> SessionStatus: return self._status
     @property
-    def cost(self) -> Money | None:
-        return self._cost
-
+    def cost(self) -> Money | None: return self._cost
     @property
-    def overstay_fine(self) -> Money | None:
-        return self._overstay_fine
+    def overstay_fine(self) -> Money | None: return self._overstay_fine
 
     @property
     def total_due(self) -> Money | None:
-        """Итог к оплате: стоимость + штраф за превышение."""
         if self._cost is None:
             return None
         if self._overstay_fine is None:
@@ -209,7 +181,7 @@ class ParkingSession:
         if policy is not None and policy.is_overstay(hours):
             self._overstay_fine = policy.overstay_fine
         else:
-            self._overstay_fine = Money(self._cost.amount * 0)  # 0 RUB
+            self._overstay_fine = Money.zero(self._cost.currency)
 
         self._status = SessionStatus.CLOSED
         return self._cost

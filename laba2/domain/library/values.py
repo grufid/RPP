@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
 from uuid import UUID
 
 from domain.common.exceptions import InvalidValueObject
@@ -10,16 +9,22 @@ from domain.common.values import Money
 @dataclass(frozen=True)
 class BookId:
     value: UUID
-
     def __post_init__(self) -> None:
         if not isinstance(self.value, UUID):
             raise InvalidValueObject("BookId должен быть UUID")
 
 
 @dataclass(frozen=True)
+class CopyId:
+    value: UUID
+    def __post_init__(self) -> None:
+        if not isinstance(self.value, UUID):
+            raise InvalidValueObject("CopyId должен быть UUID")
+
+
+@dataclass(frozen=True)
 class ReaderId:
     value: UUID
-
     def __post_init__(self) -> None:
         if not isinstance(self.value, UUID):
             raise InvalidValueObject("ReaderId должен быть UUID")
@@ -28,16 +33,30 @@ class ReaderId:
 @dataclass(frozen=True)
 class LoanId:
     value: UUID
-
     def __post_init__(self) -> None:
         if not isinstance(self.value, UUID):
             raise InvalidValueObject("LoanId должен быть UUID")
 
 
 @dataclass(frozen=True)
+class ISBN:
+    """ISBN-10 или ISBN-13 (дефисы допустимы)."""
+    value: str
+
+    def __post_init__(self) -> None:
+        digits = self.value.replace("-", "").strip()
+        if not digits.isdigit() or len(digits) not in (10, 13):
+            raise InvalidValueObject(
+                f"ISBN должен содержать 10 или 13 цифр, получено: {self.value!r}"
+            )
+
+    def __str__(self) -> str:
+        return self.value
+
+
+@dataclass(frozen=True)
 class FullName:
     """ФИО читателя."""
-
     first_name: str
     last_name: str
     middle_name: str = ""
@@ -58,48 +77,23 @@ class FullName:
 @dataclass(frozen=True)
 class TicketNumber:
     """Номер читательского билета."""
-
     value: str
+    MIN_LENGTH = 4
 
     def __post_init__(self) -> None:
         if not self.value or not self.value.strip():
             raise InvalidValueObject("Номер билета обязателен")
-        if len(self.value) < 4:
-            raise InvalidValueObject("Номер билета слишком короткий")
+        if len(self.value.strip()) < self.MIN_LENGTH:
+            raise InvalidValueObject(
+                f"Номер билета короче {self.MIN_LENGTH} символов"
+            )
 
     def __str__(self) -> str:
         return self.value
 
 
 @dataclass(frozen=True)
-class BookCopy:
-    """
-    Экземпляр книги: ссылка на книгу и учётное количество.
-    Связь с Book — по book_id (не объект).
-    """
-
-    book_id: BookId
-    quantity: int
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.book_id, BookId):
-            raise InvalidValueObject("book_id должен быть BookId")
-        if self.quantity < 1:
-            raise InvalidValueObject("Количество экземпляров должно быть >= 1")
-
-    def take_one(self) -> "BookCopy":
-        if self.quantity < 1:
-            raise InvalidValueObject("Нет доступных экземпляров")
-        return BookCopy(self.book_id, self.quantity - 1)
-
-    def add_one(self) -> "BookCopy":
-        return BookCopy(self.book_id, self.quantity + 1)
-
-
-@dataclass(frozen=True)
 class LoanPeriod:
-    """Дата выдачи, срок возврата, дата фактического возврата."""
-
     issue_date: date
     due_date: date
     return_date: date | None = None
@@ -121,10 +115,8 @@ class LoanPeriod:
 
 @dataclass(frozen=True)
 class Fine:
-    """Штраф: сумма, причина, количество дней просрочки."""
-
+    """Штраф за просрочку. Сумма — от дней и ставки."""
     amount: Money
-    reason: str = "просрочка"
     days_overdue: int = 0
 
     def __post_init__(self) -> None:
@@ -139,5 +131,5 @@ class Fine:
 
     def __str__(self) -> str:
         if self.days_overdue:
-            return f"{self.amount} ({self.reason} {self.days_overdue} дн.)"
-        return f"{self.amount} ({self.reason})"
+            return f"{self.amount} (просрочка {self.days_overdue} дн.)"
+        return f"{self.amount} (без просрочки)"

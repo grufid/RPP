@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from decimal import Decimal
+
 from domain.common.exceptions import InvalidValueObject
 
 
@@ -8,7 +9,7 @@ class Money:
     amount: Decimal
     currency: str = "RUB"
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.amount < 0:
             raise InvalidValueObject("Сумма не может быть отрицательной")
         if not self.currency or len(self.currency) != 3:
@@ -23,6 +24,10 @@ class Money:
         if k < 0:
             raise InvalidValueObject("Множитель не может быть отрицательным")
         return Money(self.amount * k, self.currency)
+
+    @classmethod
+    def zero(cls, currency: str = "RUB") -> "Money":
+        return cls(Decimal("0"), currency)
 
     def __str__(self) -> str:
         return f"{self.amount} {self.currency}"

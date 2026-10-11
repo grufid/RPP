@@ -1,42 +1,54 @@
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from enum import Enum
 from uuid import uuid4
 
-from domain.common.exceptions import DomainInvariantViolation
+from domain.common.exceptions import DomainInvariantViolation, EntityNotFound
+from domain.common.values import Money
 from domain.library.values import (
-    BookCopy, BookId, Fine, FullName, LoanId, LoanPeriod,
+    BookId, CopyId, Fine, FullName, ISBN, LoanId, LoanPeriod,
     ReaderId, TicketNumber,
 )
-from domain.common.values import Money
+
 
 class LoanStatus(Enum):
     ISSUED = "выдана"
     CLOSED = "закрыта"
 
 
+@dataclass(frozen=True)
+class Copy:
+    """
+    Экземпляр книги — внутренняя сущность агрегата Book.
+    Frozen: снаружи нельзя переключить on_loan в обход Book.
+    Состояние экземпляра меняется только через методы Book.
+    """
+    id: CopyId
+    on_loan: bool = False
+
+
 class Book:
     """
     Агрегат-корень «Книга».
-    Хранит метаданные и количество доступных экземпляров.
-    Инвариант: 0 <= available_copies <= total_copies.
+    Хранит метаданные и список физических экземпляров (Copy).
+    Инварианты:
+      - нельзя выдать экземпляр, если свободных нет;
+      - конкретный экземпляр не может быть выдан дважды;
+      - нельзя вернуть экземпляр, который не выдан.
     """
 
     def __init__(self, book_id: BookId, title: str, author: str,
-                 total_copies: int, available_copies: int) -> None:
+                 isbn: ISBN, copies: list[Copy] | None = None) -> None:
+        if not title.strip():
+            raise DomainInvariantViolation("Название книги не может быть пустым")
+        if not author.strip():
+            raise DomainInvariantViolation("Автор не может быть пустым")
+
         self._book_id = book_id
         self._title = title
         self._author = author
-        self._total_copies = total_copies
-        self._available_copies = available_copies
-        self._check_invariants()
-
-    def _check_invariants(self) -> None:
-        if self._total_copies <= 0:
-            raise DomainInvariantViolation("Всего экземпляров должно быть > 0")
-        if not (0 <= self._available_copies <= self._total_copies):
-            raise DomainInvariantViolation(
-                "Доступных экземпляров должно быть от 0 до total"
-            )
+        self._isbn = isbn
+        self._copies: list[Copy] = list(copies) if copies else []
 
     @property
     def book_id(self) -> BookId: return self._book_id
@@ -45,37 +57,60 @@ class Book:
     @property
     def author(self) -> str: return self._author
     @property
-    def total_copies(self) -> int: return self._total_copies
-    @property
-    def available_copies(self) -> int: return self._available_copies
+    def isbn(self) -> ISBN: return self._isbn
 
-    @property
-    def copy(self) -> BookCopy:
-        """VO-представление доступных экземпляров."""
-        return BookCopy(self._book_id, self._available_copies)
+    def copies(self) -> tuple[Copy, ...]:
+        return tuple(self._copies)
+
+    def total_count(self) -> int:
+        return len(self._copies)
+
+    def available_count(self) -> int:
+        return sum(1 for c in self._copies if not c.on_loan)
 
     @classmethod
-    def create(cls, title: str, author: str, total: int) -> "Book":
-        return cls(BookId(uuid4()), title, author, total, total)
+    def create(cls, title: str, author: str, isbn: ISBN) -> "Book":
+        return cls(BookId(uuid4()), title, author, isbn)
 
     @classmethod
     def restore(cls, book_id: BookId, title: str, author: str,
-                total: int, available: int) -> "Book":
-        return cls(book_id, title, author, total, available)
+                isbn: ISBN, copies: list[Copy]) -> "Book":
+        return cls(book_id, title, author, isbn, copies)
 
-    def issue_copy(self) -> None:
-        if self._available_copies <= 0:
+    def add_copy(self) -> CopyId:
+        copy = Copy(id=CopyId(uuid4()))
+        self._copies.append(copy)
+        return copy.id
+
+    def _find_copy_index(self, copy_id: CopyId) -> int:
+        for i, c in enumerate(self._copies):
+            if c.id == copy_id:
+                return i
+        raise EntityNotFound(
+            f"Экземпляр {copy_id.value} не найден в книге «{self._title}»"
+        )
+
+    def checkout(self, copy_id: CopyId) -> None:
+        """Инварианты: нет свободных; экземпляр уже выдан."""
+        if self.available_count() <= 0:
             raise DomainInvariantViolation(
                 f"Нет свободных экземпляров книги «{self._title}»"
             )
-        self._available_copies -= 1
-
-    def return_copy(self) -> None:
-        if self._available_copies >= self._total_copies:
+        i = self._find_copy_index(copy_id)
+        if self._copies[i].on_loan:
             raise DomainInvariantViolation(
-                "Нельзя вернуть больше экземпляров, чем выдано"
+                "Этот экземпляр уже выдан другому читателю"
             )
-        self._available_copies += 1
+        self._copies[i] = Copy(id=copy_id, on_loan=True)
+
+    def return_copy(self, copy_id: CopyId) -> None:
+        """Инвариант: нельзя вернуть невыданный экземпляр."""
+        i = self._find_copy_index(copy_id)
+        if not self._copies[i].on_loan:
+            raise DomainInvariantViolation(
+                "Нельзя вернуть экземпляр, который не выдан"
+            )
+        self._copies[i] = Copy(id=copy_id, on_loan=False)
 
 
 class Reader:
@@ -98,8 +133,9 @@ class Reader:
     def full_name(self) -> FullName: return self._full_name
     @property
     def ticket_number(self) -> TicketNumber: return self._ticket_number
-    @property
-    def is_active_flag(self) -> bool: return self._is_active
+
+    def is_active(self) -> bool:
+        return self._is_active
 
     @classmethod
     def create(cls, full_name: FullName,
@@ -111,9 +147,6 @@ class Reader:
                 ticket_number: TicketNumber,
                 is_active: bool = True) -> "Reader":
         return cls(reader_id, full_name, ticket_number, is_active)
-
-    def is_active(self) -> bool:
-        return self._is_active
 
     def block(self) -> None:
         if not self._is_active:
@@ -129,16 +162,20 @@ class Reader:
 class Loan:
     """
     Агрегат-корень «Выдача».
-    Связи с Book и Reader — по идентификаторам.
-    Хранит экземпляр (book_id + количество) и штраф как VO Fine.
+    Связи с Book, Copy, Reader — только по идентификаторам.
+    Инварианты:
+      - выдача не может быть закрыта дважды;
+      - дата возврата не раньше даты выдачи;
+      - штраф рассчитывается от дней просрочки.
     """
 
-    def __init__(self, loan_id: LoanId, book_id: BookId,
+    def __init__(self, loan_id: LoanId, book_id: BookId, copy_id: CopyId,
                  reader_id: ReaderId, period: LoanPeriod,
-                 status: LoanStatus,
+                 status: LoanStatus = LoanStatus.ISSUED,
                  fine: Fine | None = None) -> None:
         self._loan_id = loan_id
         self._book_id = book_id
+        self._copy_id = copy_id
         self._reader_id = reader_id
         self._period = period
         self._status = status
@@ -156,6 +193,8 @@ class Loan:
     @property
     def book_id(self) -> BookId: return self._book_id
     @property
+    def copy_id(self) -> CopyId: return self._copy_id
+    @property
     def reader_id(self) -> ReaderId: return self._reader_id
     @property
     def period(self) -> LoanPeriod: return self._period
@@ -164,25 +203,20 @@ class Loan:
     @property
     def fine(self) -> Fine | None: return self._fine
 
-    @property
-    def copy(self) -> BookCopy:
-        """VO-представление выданного экземпляра (1 шт.)."""
-        return BookCopy(self._book_id, 1)
-
     @classmethod
-    def create(cls, book_id: BookId, reader_id: ReaderId,
+    def create(cls, book_id: BookId, copy_id: CopyId, reader_id: ReaderId,
                issue_date: date, loan_days: int) -> "Loan":
         period = LoanPeriod(
             issue_date=issue_date,
             due_date=issue_date + timedelta(days=loan_days),
         )
-        return cls(LoanId(uuid4()), book_id, reader_id, period, LoanStatus.ISSUED)
+        return cls(LoanId(uuid4()), book_id, copy_id, reader_id, period)
 
     @classmethod
-    def restore(cls, loan_id: LoanId, book_id: BookId, reader_id: ReaderId,
-                period: LoanPeriod, status: LoanStatus,
-                fine: Fine | None = None) -> "Loan":
-        return cls(loan_id, book_id, reader_id, period, status, fine)
+    def restore(cls, loan_id: LoanId, book_id: BookId, copy_id: CopyId,
+                reader_id: ReaderId, period: LoanPeriod,
+                status: LoanStatus, fine: Fine | None = None) -> "Loan":
+        return cls(loan_id, book_id, copy_id, reader_id, period, status, fine)
 
     def is_active(self) -> bool:
         return self._status is LoanStatus.ISSUED
@@ -198,7 +232,6 @@ class Loan:
             due_date=self._period.due_date,
             return_date=return_date,
         )
-        days = self._period.overdue_days()
-        self._fine = Fine.for_overdue(days, fine_per_day)
+        self._fine = Fine.for_overdue(self._period.overdue_days(), fine_per_day)
         self._status = LoanStatus.CLOSED
         return self._fine
