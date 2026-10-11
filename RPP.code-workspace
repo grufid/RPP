@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"name": "RPP",
+			"path": "../DDD/RPP"
+		},
+		{
+			"name": "DDD",
+			"path": "../DDD"
+		}
+	],
+	"settings": {}
+}
